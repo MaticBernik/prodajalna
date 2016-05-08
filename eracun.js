@@ -133,7 +133,14 @@ var pesmiIzRacuna = function(racunId, callback) {
     Track.TrackId IN (SELECT InvoiceLine.TrackId FROM InvoiceLine, Invoice \
     WHERE InvoiceLine.InvoiceId = Invoice.InvoiceId AND Invoice.InvoiceId = " + racunId + ")",
     function(napaka, vrstice) {
-      console.log(vrstice);
+      if (napaka) {
+        callback(false);
+      } else {
+        for (var i=0; i<vrstice.length; i++) {
+          vrstice[i].stopnja = davcnaStopnja((vrstice[i].opisArtikla.split(' (')[1]).split(')')[0], vrstice[i].zanr);
+        }
+        callback(vrstice);
+      }
     })
 }
 
@@ -143,13 +150,62 @@ var strankaIzRacuna = function(racunId, callback) {
             WHERE Customer.CustomerId = Invoice.CustomerId AND Invoice.InvoiceId = " + racunId,
     function(napaka, vrstice) {
       console.log(vrstice);
+      callback(vrstice);
     })
 }
 
+var postavkeNaRacunuIzBaz;
+var strankaIzRacunaIzBaze;
+var cakaj=0;
 // Izpis računa v HTML predstavitvi na podlagi podatkov iz baze
 streznik.post('/izpisiRacunBaza', function(zahteva, odgovor) {
-  odgovor.end();
-})
+  var form = new formidable.IncomingForm();
+  var racunId;
+  form.parse(zahteva, function (napaka1, polja, datoteke) {
+    racunId=polja.seznamRacunov;
+    //zahteva.session.kosarica=[];
+    var pridobiPodatke = function (racunId,callback){
+      strankaIzRacuna(racunId,function(stranka){
+        strankaIzRacunaIzBaze=stranka;
+        cakaj++;
+        if(cakaj>=2){
+          callback();
+        }
+      });  
+      pesmiIzRacuna(racunId,function(lines){
+        postavkeNaRacunuIzBaze=lines;
+        console.log("postavkeNaRacunuIzBaze--->"+postavkeNaRacunuIzBaze[0]);
+        cakaj++;
+        if(cakaj>=2){
+          callback();
+        }
+      });
+    } 
+    
+    var izpisiHTML = function(){
+      console.log("PODATKI SO ZBRANI:");
+      console.log(postavkeNaRacunuIzBaze[0].zanr);
+      console.log(strankaIzRacunaIzBaze);
+      
+      odgovor.setHeader('content-type', 'text/xml');
+      odgovor.render('eslog', {
+      vizualiziraj: true,
+      postavkeRacuna: postavkeNaRacunuIzBaze,
+      NazivPartnerja1: strankaIzRacunaIzBaze[0].FirstName+" "+strankaIzRacunaIzBaze[0].LastName,
+      NazivPartnerja2: strankaIzRacunaIzBaze[0].Company,
+      Ulica1: strankaIzRacunaIzBaze[0].Address,
+      Kraj: strankaIzRacunaIzBaze[0].City,
+      NazivDrzave: strankaIzRacunaIzBaze[0].Country,
+      PostnaStevilka: strankaIzRacunaIzBaze[0].PostalCode,
+      StevilkaKomunikacijeTE: strankaIzRacunaIzBaze[0].Phone,
+      StevilkaKomunikacijeFX: strankaIzRacunaIzBaze[0].Fax,
+      ImeOsebe: strankaIzRacunaIzBaze[0].FirstName+" "+strankaIzRacunaIzBaze[0].LastName+" ("+strankaIzRacunaIzBaze[0].Email+")"
+      })  
+    }
+    cakaj=0;
+    pridobiPodatke(racunId,izpisiHTML);
+    });
+  })
 
 // Izpis računa v HTML predstavitvi ali izvorni XML obliki
 streznik.get('/izpisiRacun/:oblika', function(zahteva, odgovor) {
@@ -163,7 +219,8 @@ streznik.get('/izpisiRacun/:oblika', function(zahteva, odgovor) {
       odgovor.setHeader('content-type', 'text/xml');
       odgovor.render('eslog', {
         vizualiziraj: zahteva.params.oblika == 'html' ? true : false,
-        postavkeRacuna: pesmi
+        postavkeRacuna: pesmi,
+        //podatkiOStranki:
       })  
     }
   })
@@ -171,7 +228,7 @@ streznik.get('/izpisiRacun/:oblika', function(zahteva, odgovor) {
 
 // Privzeto izpiši račun v HTML obliki
 streznik.get('/izpisiRacun', function(zahteva, odgovor) {
-  odgovor.redirect('/izpisiRacun/html')
+  odgovor.redirect('/izpisiRacun/html');
 })
 
 // Vrni stranke iz podatkovne baze
